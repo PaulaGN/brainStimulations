@@ -1,0 +1,440 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Cmd+Shift+Enter*. 
+
+```{r}
+#Get Libraries
+```
+
+
+
+```{r}
+install.packages("MASS")
+library(MASS)
+```
+
+```{r}
+install.packages("Ecdat")
+library(caret);library(e1071);library(corrplot);library(Ecdat)
+```
+
+```{r}
+install.packages("R.matlab")
+library(R.matlab)
+```
+
+
+```{r}
+install.packages("psych")
+library("psych")
+```
+
+
+
+```{r}
+install.packages("leaps")
+library(leaps)
+```
+
+```{r}
+install.packages("car")
+library(car)
+```
+
+```{r}
+#Introduction
+#In this final project we use the data collected from the SHARP research project which aims to understand and increase the effect of different brain simulations and cognitive training on cognitive ability. 
+
+#This study records brain activity with EEG  from different participants while they are doing different computerized cognitive tasks, during which electrical brain stimulation (less than 2 mA) may applied to their scalp. During each recording the study also measures the participant performance of the cognitive task in terms of ability. 
+
+#In this study 3 different brain simulations are considered and each participant is applied to one particular brain stimulation. Previous to the cognitive tasks we also record resting EEG data during three minutes. For each brain stimulation from different subjects we analyze the rest-EEG in relation to their change in performance on different cognitive tasks. We use this to develop a model that can be used to predict which stimulation intervention should be used for an individual based on resting EEG.  
+
+#This manuscript is structured based on the Cross-industry standard process for data mining, commonly known by its acronym CRISP-DM, which is a data mining process model that describes commonly used approaches that data mining experts use to tackle problems. The  CRISP-DM includes the 5 different phases: (1) business understanding, (2) data collection, (3) data Preparation, (4) modeling, (5) evaluation and (6) model improvement.
+
+
+```
+
+```{r}
+#Step1: Bussiness Understanding
+#The Sharp data repository includes a rich data-set over 500 participants and different sessions. In this study 3 different brain simulations are considered and each participant is applied to one particular brain stimulation. For each session, previous to the cognitive tasks we also record resting EEG data during three minutes while the participants is with eyes closes and eyes opens. We hypothesize that the brain stimulation will affect on your task performance and resting EEG data.  The main goal of this study is to know if for each brain stimulation we can predict the participant performance of the cognitive task based on the resting EEG data. Hence we want to build an EEG model for each brain stimulation that predicts performance based on resting EEG data. The model uses a rich set of rest-EEG power spectrum & spatial  features. Hence went a new participants comes we can predict the performance for each brain stimulation  based on collected resting EEG data, and therefore we will apply to the individual the brain stimulation that yields to higher performance. 
+```
+
+
+```{r}
+#Step 2: collecting data
+
+#The Sharp data repository includes a rich data-set over 500 participants and different sessions.
+#In this study 3 different brain simulations are considered s={tDCS,tRNS,sham} and each participant is applied to one particular brain stimulation. 
+#For each session 
+  #we record resting EEG data (indirect measure / Predictor variable) =x
+  #Performance of the cognitive task (direct measure / Response variable)=y
+
+
+
+```
+
+
+
+```{r}
+#Load the data
+
+#(link to) data set: 
+#https://drive.google.com/open?id=1-bknZhY0CLjpYeoC7PioLc47vjPxOXNg
+
+typeCase='tDCS'
+
+if(typeCase=='tRNS'){
+#Predictors: 
+data=readMat('EEGDatatRNS.mat')
+dataEEG=data.frame(data$EEGArraytRNS)
+#Response variables
+data=readMat('BehavioralDatatRNS.mat')
+dataBehavioural=data.frame(data$BehavioralArraytRNS)
+}
+
+if(typeCase=='tDCS'){
+#Predictors: 
+data=readMat('EEGDatatDCS.mat')
+dataEEG=data.frame(data$EEGArraytDCS)
+#Response variables
+data=readMat('BehavioralDatatDCS.mat')
+dataBehavioural=data.frame(data$BehavioralArraytDCS)
+}
+
+if(typeCase=='sham'){
+#Predictors: 
+data=readMat('EEGDatasham.mat')
+dataEEG=data.frame(data$EEGArraysham)
+#Response variables
+data=readMat('BehavioralDatasham.mat')
+dataBehavioural=data.frame(data$BehavioralArraysham)
+}
+
+
+```
+
+
+```{r}
+
+#Predictors: incluse
+data=dataEEG;
+#Add Response variable
+responseVariableIndex=ncol(data)+1
+data[responseVariableIndex]=dataBehavioural[4]
+names(data)[responseVariableIndex]<-paste("learning")
+
+```
+
+
+
+
+```{r}
+#Step 3: Data Preparation: Exploration & Cleaning
+#we remove the data containing NANs and zeroe learning.
+data=data[complete.cases(data), ];
+
+#Remove outliers. We compute the z-score for the predictor variables. We remove observations with a Z- score of >+- 3 . 
+dataz <- as.data.frame(scale(data[,1:(responseVariableIndex-1)]))
+summary(dataz)
+
+
+m <- matrix(0, ncol =ncol(dataz) , nrow = nrow(dataz))
+i=1;
+while(i<=nrow(dataz)){
+  v=which(dataz[i,]>3)
+  m[i,v]=1;
+  i=i+1;
+}
+
+V=rowSums(m)
+dataz=dataz[which(V== 0),]
+dataz[responseVariableIndex]=data[which(V== 0),responseVariableIndex]
+names(dataz)[responseVariableIndex]<-paste("learning")
+
+
+data=dataz
+data=data[which(data$learning != 0),]
+
+```
+
+
+```{r}
+#Our model's dependent variable is learning, which measures the learning for each person during the cognitive task . Prior to building a regression model, it is often helpful to check for normality. Although linear regression does not strictly require a normally distributed dependent variable, the model often  ts better when this is true. Let's take a look at the summary statistics:
+
+#Because the mean value is greater than the median, this implies that the distribution of learning is right-skewed. We can confirm this visually using a histogram:
+
+hist(data$learning, 
+     main=typeCase, 
+     xlab="Response variable: Learning", 
+     border="gray", 
+     col="blue", 
+     ylim=c(0,1), 
+     las=1, 
+     breaks=5, 
+     prob = TRUE)
+lines(density(data$learning))
+
+
+summary(data$learning)
+#The output is shown as follows:
+```
+
+```{r}
+#Exploring relationships among features-the correlation matrix
+
+#Before  fitting a regression model to data, it can be useful to determine how the independent variables are related to the dependent variable and each other. A correlation matrix provides a quick overview of these relationships. Given a set of variables, it provides a correlation for each pairwise relationship.
+
+#Visualizing relationships among features
+#Above the diagonal, the scatterplots have been replaced with a correlation matrix. On the diagonal, a histogram depicting the distribution of values for each feature is shown. Finally, the scatterplots below the diagonal are now presented with additional visual information.
+#The oval-shaped object on each scatterplot is a correlation ellipse. It provides a visualization of correlation strength. The dot at the center of the ellipse indicates the point at the mean values for the x and y axis variables. The correlation between the two variables is indicated by the shape of the ellipse; the more it is stretched, the stronger the correlation. An almost perfectly round oval, as with x_i and learning, indicates a very weak correlation (in this case, it is 0.01).
+
+
+
+pairs.panels(dataBehavioural)
+```
+
+
+```{r}
+#Step 4 & 5- Modeling & Evaluation
+  #Support Vector Regression : Support Vector Regression is a sparse and robust regression model that minimizes an     epsilon-insensitive error function
+  #with 4 different Kernels. (Linear/Sigmoid/Polynomial& Radial)
+#Multiple simple Regression
+
+
+```
+
+```{r}
+#The process we are using to develop the models is as follows
+
+#Set the seed
+#Develop the initial model by setting the formula, dataset, kernel, cost function, and other needed information.
+#Select the best model for the test set
+#Predict with the best model
+#Plot the predicted and actual results
+#Calculate the mean squared error
+```
+
+```{r}
+
+
+```
+
+
+```{r}
+set.seed(502)
+
+indexToExcludes <- sample(1:nrow(data), 3)
+
+if(typeCase=='tRNS'){
+  testdatatRNS=data[indexToExcludes,]
+}
+
+if(typeCase=='tDCS'){
+  testdatatDCS=data[indexToExcludes,]
+}
+
+if(typeCase=='sham'){
+  testdatasham=data[indexToExcludes,]
+}
+
+data=data[-indexToExcludes, ] 
+
+```
+
+```{r}
+#SVM
+train=data
+test=data
+```
+
+```{r}
+#set.seed(502)
+#ind=sample(2,nrow(data),replace=T,prob=c(.6,.4))
+#train<-data[ind==1,]
+#test<-data[ind==2,]
+```
+
+
+
+```{r, fig.height=5, fig.width=5}
+#Linear Kernel
+
+#Our first kernel is the linear kernel. Below is the code. We use the tune.svm function from the e1071 package. We set the kernel to linear and we pick our own values for the cost function. The numbers for the cost function can be whatever you want. Also, keep in mind that r will produce six different models because we have six different values in the cost argument.
+
+
+linear.tune<-tune.svm(learning~.,data=train,kernel="linear",cost = c(.001,.01,.1,1,5,10))
+plot(linear.tune)
+#linear.tune<-tune (svm,learning~.,data=train,kernel="linear",ranges = list(epsilon = seq(0,1,0.1), cost = 2^(2:9)))
+summary(linear.tune)
+best.linear<-linear.tune$best.model
+tune.test<-predict(best.linear,newdata=test)
+p1.RMSE<-(sqrt(mean((tune.test-test$learning)^2)))
+p1.RMSE
+titlename=paste("SVR Linear",typeCase, sep="-")
+plot(tune.test,test$learning,xlab="y-Prediction",ylab="y",main=titlename)
+
+abline(0, 1)
+
+#plot(test$learning)
+#points( test$X1,test$learning,col = "red", pch=16)
+```
+
+
+
+
+```{r,fig.height=5, fig.width=5}
+#Polynomial Kernel
+
+#The next kernel we will use is the polynomial one. The kernel requires two parameters the degree of the polynomial (3,4,5, etc) as well as the kernel coefficient. Below is the code
+
+set.seed(123)
+poly.tune<-tune.svm(learning~.,data=train,kernel="polynomial",degree = c(3,4,5),coef0 = c(.1,.5,1,2,3,4))
+best.poly<-poly.tune$best.model
+best.poly
+poly.test<-predict(best.poly,newdata=test)
+p1.RMSE<-(sqrt(mean((poly.test-test$learning)^2)))
+p1.RMSE
+titlename=paste("SVR Polynomial",typeCase, sep="-")
+plot(poly.test,test$learning,xlab="y-Prediction",ylab="y",main=titlename )
+abline(0, 1)
+```
+
+```{r}
+#Radial Kernel
+
+#Next, we will use the radial kernel. One thing that is new here is the need for a parameter in the code call gamma. Below is the code.
+```
+
+```{r,fig.height=5, fig.width=5}
+set.seed(123)
+rbf.tune<-tune.svm(learning~.,data=train,kernel="radial",gamma = c(.1,.5,1,2,3,4))
+summary(rbf.tune)
+best.rbf<-rbf.tune$best.model
+rbf.test<-predict(best.rbf,newdata=test)
+titlename=paste("SVR Radial",typeCase, sep="-")
+plot(rbf.test,test$learning,xlab="y-Prediction",ylab="y",main=titlename)
+abline(0, 1)
+p1.RMSE<-(sqrt(mean((rbf.test-test$learning)^2)))
+p1.RMSE
+```
+
+```{r}
+#Sigmoid Kernel
+#Next, we will try the sigmoid kernel. Sigmoid kernel relies on a gamma parameter and a cost function. Below is the code
+```
+
+```{r,fig.height=5, fig.width=5}
+set.seed(123)
+sigmoid.tune<-tune.svm(learning~.,data=train,kernel="sigmoid",gamma = c(.1,.5,1,2,3,4),coef0 = c(.1,.5,1,2,3,4))
+summary(sigmoid.tune)
+best.sigmoid<-sigmoid.tune$best.model
+best.test<-predict(best.sigmoid,newdata=test)
+titlename=paste("SVR Sigmoid",typeCase, sep="-")
+plot(best.test,test$learning,xlab="y-Prediction",ylab="y",main=titlename)
+abline(0, 1)
+p1.RMSE<-(sqrt(mean((best.test-test$learning)^2)))
+p1.RMSE
+```
+
+```{r}
+#The sigmoid performed much worst then the other models based on the metric of error. You can further see the problems with this model in the plot above.
+
+#Conclusion
+
+#The final results are as follows
+
+#Which model to select depends on the goals of the study. However, it definitely looks as though you would be picking from among the first three models. The power of SVM is the ability to use different kernels to uncover different results without having to really modify the features yourself.
+
+
+```
+
+
+```{r}
+#Multiple Regression
+
+
+```
+
+
+
+```{r,fig.height=5, fig.width=5}
+m1<-lm(learning ~.,data=data)
+prediction<-predict(m1,data)
+summary(m1)
+prediction.RMSE<-(sqrt(mean((prediction-data$learning)^2)))
+prediction.RMSE
+plot(prediction,data$learning,xlab="y-Prediction",ylab="y",main=typeCase)
+abline(0, 1)
+layout(matrix(c(1,2,3,4),2,2)) # optional 4 graphs/page 
+```
+```{r}
+#Step 6- Improving model performance: Feateure Selection. AIC
+```
+
+```{r,fig.height=5, fig.width=5}
+#Selecting a subset of predictor variables from a larger set (e.g., stepwise selection) is a controversial topic. You can perform stepwise selection (forward, backward, both) using the stepAIC( ) function from the MASS package. stepAIC( ) performs stepwise model selection by exact AIC.
+stepAICModel <- stepAIC(m1, direction="backward")
+p1AICC<-predict(stepAICModel,data)
+summary(stepAICModel)
+p1AIC.RMSE<-(sqrt(mean((p1AICC-data$learning)^2)))
+p1AIC.RMSE
+titlename=paste("Multiple Regression",typeCase, sep="-")
+plot(p1AICC,data$learning,xlab="y-Prediction",ylab="y",main=titlename)
+abline(0, 1)
+layout(matrix(c(1,2,3,4),2,2)) # optional 4 graphs/page 
+plot(stepAICModel)
+stepAICModel$anova # display results
+summary(stepAICModel)
+
+if(typeCase=="sham"){
+  stepAICModelSham=stepAICModel
+}
+
+if(typeCase=="tDCS"){
+  stepAICModelTDCS=stepAICModel
+}
+
+if(typeCase=="sham"){
+  stepAICModelTRNS=stepAICModel
+}
+```
+
+
+
+```{r}
+#Alternatively, you can perform all-subsets regression using the leaps( ) function from the leaps package. In the following code nbest indicates the number of subsets of each size to report. Here, the ten best models will be reported for each subset size (1 predictor, 2 predictors, etc.).
+```
+
+
+```{r}
+
+testdatatDCS$type=c(1,1,1)
+testdatatRNS$type=c(2,2,2)
+testdatasham$type=c(3,3,3)
+
+newSubjects=rbind(testdatasham,testdatatDCS,testdatatRNS)
+types=newSubjects
+
+newtdcs<-predict(stepAICModelTDCS,newSubjects)
+newtrns<-predict(stepAICModelTRNS,newSubjects)
+newsham<-predict(stepAICModelSham,newSubjects)
+
+
+newSubjects$learningTDCS=newtdcs
+newSubjects$learningSHAM=newsham
+newSubjects$learningTRNS=newtrns
+```
+
+
+
+
+
+
+Add a new chunk by clicking the *Insert Chunk* button on the toolbar or by pressing *Cmd+Option+I*.
+
+When you save the notebook, an HTML file containing the code and output will be saved alongside it (click the *Preview* button or press *Cmd+Shift+K* to preview the HTML file).
